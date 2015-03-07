@@ -1,3 +1,8 @@
+// Copyright (c) 2014-2015 by Wayne C. Gramlich.  All rights reserved.
+
+#ifndef BUS_SLAVE_H_INCLUDED
+#define BUS_SLAVE_H_INCLUDED 1
+
 //! @file Bus.h
 //! @brief Header file for Bus classes
 //!
@@ -57,9 +62,6 @@
 //!
 //! The *Bus_Buffer* class is a helper class that buffers up data packets
 //! for sending and receiving.
-
-#ifndef BUS_H
-#define BUS_H 1
 
 // All typedef's go up here before the #includes':
 
@@ -592,4 +594,4 @@ class Bus_Module
 
 extern Bus_Slave bus_slave;
 
-#endif // BUS_H
+#endif // BUS_SLAVE_H_INCLUDED

@@ -370,9 +370,12 @@ class Function(Node):
         if fmt == "":
             # Error:
             result = "@Function@"
-        elif fmt == 'r':
+        elif fmt == 'R':
             # Routine name:
             result = style.routine_name(self.name)
+        elif fmt == 'r':
+            # Routine name:
+            result = style.routine_name(self.name).lower()
         elif fmt[0] == 'S':
             # Signature:
             lexemes = []
@@ -425,6 +428,82 @@ class Function(Node):
             # Error:
             result = "@Function:{0}@".format(fmt)
         return result
+
+    def command_process_case_write(self, offset, out_stream):
+	""" *Function*: """
+
+        # Check argument types:
+        assert isinstance(offset, int)
+        assert isinstance(out_stream, file)
+
+        # Grab some values out of *self*:
+        brief = self.brief
+        name = self.name
+        number = self.number
+        parameters = self.parameters
+        results = self.results
+        results_length = len(results)
+        style = self.style
+
+        # Output: "case NUMBER: {"
+        out_stream.write("{0:i}case {1}:{0:b}".format(style, offset + number))
+
+        # Output: "// FUNCTION_NAME: BRIEF"
+        out_stream.write("{0:i}// {1:r}: {2}\n".format(style, self, brief))
+
+        # Fetch the each *parameter* value and stuff into a local variable:
+        for parameter in parameters:
+            # Output "PNi = bus->PTi_get();"
+            parameter_type = parameter.type
+            out_stream.write("{0:i}{1:c} = bus_slave->{2}_get();\n". \
+              format(style, parameter, parameter_type.lower()))
+            
+        # Define the variables needed for return values:
+        for result in results:
+            # Output: "RT1 RN1;"
+            out_stream.write("{0:i}{1:c};\n".format(style, result))
+
+        # Output: "if (execute_mode) {"
+        out_stream.write("{0:i}if (execute_mode){0:b}".format(style))
+
+        # Output: "RN1 = " (if needed):
+        out_stream.write("{0:i}".format(style))
+        if results_length >= 1:
+            out_stream.write("{0:n} = ".format(results[0]))
+
+        # Output: "FUNCTION_NAME(":
+        out_stream.write("{0:r}(".format(self))
+
+        # Output: "PN1,...PNn" (if available):
+        prefix = ""
+        for parameter in parameters:
+            out_stream.write("{0}{1:n}".format(prefix, parameter))
+            prefix = ", "
+
+        # Output: ",&RN2,...,&RNn" (if necessary):
+        if results_length > 1:
+            for index in range(1, results_length):
+                result = results[index]
+                out_stream.write("{0}&{1:n};\n".format(prefix, result))
+                prefix = ", "
+
+        # Output: ");" 
+        out_stream.write(");\n")
+
+        # Send any results to the send buffer:
+        for result in results:
+            # Output: "bus->RTi_put(RNi);"
+            out_stream.write("{0:i}bus_slave->{1}_put({2:n});\n". \
+              format(style, result.type.lower(), result))
+
+        # Output: "}"
+        out_stream.write("{0:e}".format(style))
+
+        # Output: "break;"
+        out_stream.write("{0:i}break;\n".format(style))
+
+        # Output: "}"
+        out_stream.write("{0:e}".format(style))
 
     ## @brief Write the C++ method declaration for *self* to *out_stream*.
     #  @param self *Function* object to use for information
@@ -531,6 +610,97 @@ class Function(Node):
               format(style, self.results[0].name))
 
         # Output: "}":
+        out_stream.write("{0:e}\n".format(style))
+
+    ## @brief Write remote side RPC code for *self* to *out_stream*.
+    #  @param self *Function* to output RPC code for
+    #  @param module *Module* to use for module name
+    #  @param out_stream *file* to output code to
+    #
+    # The routine will look something like:
+    #
+    #        // NAME: BRIEF
+    #        RT1 MODULE::FUNCTION(PT1 PN1,...,PTn PNn,RT2 *RN2,...,RTn *RNn) {
+    #            Bus_Module::command_begin(NUMBER);
+    #            Bus_Module::PT1_put(P1);
+    #            ...
+    #            Bus_Module::PTn_put(Pn);
+    #            RT1 R1 = Bus_Module::RT1_get();
+    #            *RN2 = Bus_Module::RT2_get();
+    #            ...
+    #            *RNn = Bus_Module::RTn_get();
+    #            Bus_Module::command_end();
+    #            return RN1;
+    #        }
+    #
+    # where
+    #
+    #  * NUMBER is the RPC number
+    #  * FUNCTION_NAME is the function name
+    #  * BRIEF is the 1 line comment brief
+    #  * PNi is the i'th Parameter Name
+    #  * PTi is the i'th Parameter Type
+    #  * RNi is the i'th Result Name
+    #  * RTi is the i'th Result Type
+
+    def cpp_remote_source_write(self, module, out_stream):
+	""" *Function*: """
+
+        # Check argument types:
+        assert isinstance(module, Module)
+        assert isinstance(out_stream, file)
+
+        # Grab some values from *self*:
+        style = self.style
+        name = self.name
+        number = self.number
+        parameters = self.parameters
+        results = self.results
+        results_length = len(results)
+
+        # Output: "// NAME: BRIEF"
+        out_stream.write("// {0:r}: {1}\n".format(self, self.brief))
+
+        # Output:
+        #  "T1 MODULE::FUNCTION(PT1 PN1,...,PTn PNn,RT2 *RN2,...,RTn *RNn) {":
+        format_string = "{0:S" + module.name + "::}{1:b}"
+        #print "format_string='{0}'".format(format_string)
+        out_stream.write(format_string.format(self, style))
+
+        # Output: "Bus_Module::command_begin(NUMBER);"
+        out_stream.write("{0:i}Bus_Module::command_begin({1});\n". \
+          format(style, number))
+
+        # Output the code to send the parameters over to the module:
+        for parameter in parameters:
+            # Output: Bus_Module::PTi_put(PNi);
+            out_stream.write("{0:i}Bus_Module::{1}_put({2:n});\n". \
+              format(style, parameter.type.lower(), parameter))
+
+        # Deal with RPC returned results:
+        for index in range(results_length):
+            result = results[index]
+            if index == 0:
+                # Output: "RT1 RN1 = Bus_Module::RT1_get();"
+                out_stream.write("{0:i}{1} {2} = ". \
+                  format(style, result.type, result.name.lower()))
+            else:
+                # Output: "*RNi = Bus_Module::RTi_get();"
+                out_stream.write("{0:i}*{1} = ". \
+                  format(style, result.type, result.name.lower()))
+            out_stream.write("Bus_Module::{0}_get();\n". \
+              format(result.type.lower()))
+
+        # Output:  Bus_Module::command_end();
+        out_stream.write("{0:i}Bus_Module::command_end();\n". \
+          format(style))
+
+        # Output: "return RN1;"
+        if results_length != 0:
+            out_stream.write("{0:i}return {1};\n". \
+              format(style, results[0].name.lower()))
+
+        # Output: "}"
         out_stream.write("{0:e}\n".format(style))
 
     ## @brief Write C++ code for RPC request handing for *self* to *out_stream*
@@ -647,173 +817,6 @@ class Function(Node):
         # Output: "}"
         out_stream.write("{0:e}".format(style))
 
-    def command_process_case_write(self, offset, out_stream):
-	""" *Function*: """
-
-        # Check argument types:
-        assert isinstance(offset, int)
-        assert isinstance(out_stream, file)
-
-        # Grab some values out of *self*:
-        brief = self.brief
-        name = self.name
-        number = self.number
-        parameters = self.parameters
-        results = self.results
-        results_length = len(results)
-        style = self.style
-
-        # Output: "case NUMBER: {"
-        out_stream.write("{0:i}case {1}:{0:b}".format(style, offset + number))
-
-        # Output: "// FUNCTION_NAME: BRIEF"
-        out_stream.write("{0:i}// {1:r}: {2}\n".format(style, self, brief))
-
-        # Fetch the each *parameter* value and stuff into a local variable:
-        for parameter in parameters:
-            # Output "PNi = bus->PTi_get();"
-            parameter_type = parameter.type
-            out_stream.write("{0:i}{1:c} = bus_slave->{2}_get();\n". \
-              format(style, parameter, parameter_type.lower()))
-            
-        # Define the variables needed for return values:
-        for result in results:
-            # Output: "RT1 RN1;"
-            out_stream.write("{0:i}{1:c};\n".format(style, result))
-
-        # Output: "if (execute_mode) {"
-        out_stream.write("{0:i}if (execute_mode){0:b}".format(style))
-
-        # Output: "RN1 = " (if needed):
-        out_stream.write("{0:i}".format(style))
-        if results_length >= 1:
-            out_stream.write("{0:n} = ".format(results[0]))
-
-        # Output: "FUNCTION_NAME(":
-        out_stream.write("{0:r}(".format(self))
-
-        # Output: "PN1,...PNn" (if available):
-        prefix = ""
-        for parameter in parameters:
-            out_stream.write("{0}{1:n}".format(prefix, parameter))
-            prefix = ", "
-
-        # Output: ",&RN2,...,&RNn" (if necessary):
-        if results_length > 1:
-            for index in range(1, results_length):
-                result = results[index]
-                out_stream.write("{0}&{1:n};\n".format(prefix, result))
-                prefix = ", "
-
-        # Output: ");" 
-        out_stream.write(");\n")
-
-        # Send any results to the send buffer:
-        for result in results:
-            # Output: "bus->RTi_put(RNi);"
-            out_stream.write("{0:i}bus_slave->{1}_put({2:n});\n". \
-              format(style, result.type.lower(), result))
-
-        # Output: "}"
-        out_stream.write("{0:e}".format(style))
-
-        # Output: "break;"
-        out_stream.write("{0:i}break;\n".format(style))
-
-        # Output: "}"
-        out_stream.write("{0:e}".format(style))
-
-    ## @brief Write remote side RPC code for *self* to *out_stream*.
-    #  @param self *Function* to output RPC code for
-    #  @param module *Module* to use for module name
-    #  @param out_stream *file* to output code to
-    #
-    # The routine will look something like:
-    #
-    #        // NAME: BRIEF
-    #        RT1 MODULE::FUNCTION(PT1 PN1,...,PTn PNn,RT2 *RN2,...,RTn *RNn) {
-    #            Bus_Module::command_begin(NUMBER);
-    #            Bus_Module::PT1_put(P1);
-    #            ...
-    #            Bus_Module::PTn_put(Pn);
-    #            RT1 R1 = Bus_Module::RT1_get();
-    #            *RN2 = Bus_Module::RT2_get();
-    #            ...
-    #            *RNn = Bus_Module::RTn_get();
-    #            Bus_Module::command_end();
-    #            return RN1;
-    #        }
-    #
-    # where
-    #
-    #  * NUMBER is the RPC number
-    #  * FUNCTION_NAME is the function name
-    #  * BRIEF is the 1 line comment brief
-    #  * PNi is the i'th Parameter Name
-    #  * PTi is the i'th Parameter Type
-    #  * RNi is the i'th Result Name
-    #  * RTi is the i'th Result Type
-
-    def cpp_remote_source_write(self, module, out_stream):
-	""" *Function*: """
-
-        # Check argument types:
-        assert isinstance(module, Module)
-        assert isinstance(out_stream, file)
-
-        # Grab some values from *self*:
-        style = self.style
-        name = self.name
-        number = self.number
-        parameters = self.parameters
-        results = self.results
-        results_length = len(results)
-
-        # Output: "// NAME: BRIEF"
-        out_stream.write("// {0:r}: {1}\n".format(self, self.brief))
-
-        # Output:
-        #  "T1 MODULE::FUNCTION(PT1 PN1,...,PTn PNn,RT2 *RN2,...,RTn *RNn) {":
-        format_string = "{0:S" + module.name + "::}{1:b}"
-        #print "format_string='{0}'".format(format_string)
-        out_stream.write(format_string.format(self, style))
-
-        # Output: "Bus_Module::command_begin(NUMBER);"
-        out_stream.write("{0:i}Bus_Module::command_begin({1});\n". \
-          format(style, number))
-
-        # Output the code to send the parameters over to the module:
-        for parameter in parameters:
-            # Output: Bus_Module::PTi_put(PNi);
-            out_stream.write("{0:i}Bus_Module::{1}_put({2:n});\n". \
-              format(style, parameter.type.lower(), parameter))
-
-        # Deal with RPC returned results:
-        for index in range(results_length):
-            result = results[index]
-            if index == 0:
-                # Output: "RT1 RN1 = Bus_Module::RT1_get();"
-                out_stream.write("{0:i}{1} {2} = ". \
-                  format(style, result.type, result.name.lower()))
-            else:
-                # Output: "*RNi = Bus_Module::RTi_get();"
-                out_stream.write("{0:i}*{1} = ". \
-                  format(style, result.type, result.name.lower()))
-            out_stream.write("Bus_Module::{0}_get();\n". \
-              format(result.type.lower()))
-
-        # Output:  Bus_Module::command_end();
-        out_stream.write("{0:i}Bus_Module::command_end();\n". \
-          format(style))
-
-        # Output: "return RN1;"
-        if results_length != 0:
-            out_stream.write("{0:i}return {1};\n". \
-              format(style, results[0].name.lower()))
-
-        # Output: "}"
-        out_stream.write("{0:e}\n".format(style))
-
     ## @brief Output Python RPC code for *self* to *out_stream*
     #  @param self *Function* to output Python code for
     #  @param out_stream *file* to output Python code to
@@ -899,6 +902,18 @@ class Function(Node):
 
         # Restore indentation:
         style.indent_adjust(-1)
+
+    def ros_python_client_write(self, out_stream):
+	""" Register: Write out an if clause for *self*. """
+
+	assert isinstance(out_stream, file)
+	out_stream.write(
+	  "        elif command == \"{0:n}\":\n".format(self))
+	out_stream.write("            pass\n")
+
+    def ros_srv_write(self):
+	""" Function: Write out the srv file for *self*. """
+	pass
 
 ## @class Include
 #
@@ -1058,14 +1073,70 @@ class Module(Node):
         assert isinstance(fmt, str)
 
         # Dispatch on *fmt*:
-        if fmt == 'n':
+        if fmt == 'N':
             result = self.name
+        elif fmt == 'n':
+            result = self.name.lower()
         elif fmt == 't':
             result = self.name.replace(" ", "_")
         else:
             result = "@Module:{0}@".format(fmt)
 	    assert False, result
         return result
+
+    def command_process_write(self, offset, out_stream):
+	""" Module.command_process_write() """
+
+	assert isinstance(offset, int)
+	assert isinstance(out_stream, file)
+
+	out_stream.write("// command_process: Command process\n")
+	style = self.style
+	format_text = "UByte {0:N}::command_process(Bus_Slave *bus_slave," + \
+	  " UByte command, Logical execute_mode){1:b}"
+        out_stream.write(format_text.format(self, style))
+
+	out_stream.write("{0:i}switch (command){0:b}".format(style))
+
+        original_offset = offset
+        #print "=>Module.ino_slave_write({0}, {1}, *)". \
+        #  format(offset, variable_name)
+
+        # Check argument types:
+        assert isinstance(offset, int)
+        assert isinstance(out_stream, file)
+
+        # Grab some values from *self*:
+        functions = self.functions
+        name = self.name
+        registers = self.registers
+        style = self.style
+
+        # Iterate over all *registers*:
+        last_number = -1
+        for register in registers:
+            register.command_process_case_write(offset, out_stream)
+            if register.number > last_number:
+                last_number = register.number + 1
+
+        # Iterate over all *functions*:
+        for function in functions:
+            function.command_process_case_write(offset, out_stream)
+            if function.number > last_number:
+                last_number = function.number
+
+        offset += last_number + 1
+
+        #print "<=Module.ino_slave_write({0}, {1}, *)=>{2}". \
+        #  format(original_offset, variable_name, offset)
+
+	out_stream.write("{0:e}".format(style))
+	out_stream.write("{0:i}return 0;\n".format(style))
+	out_stream.write("{0:e}".format(style))
+
+	out_stream.write("\n")
+
+        return offset
 
     ## @brief Write C++ header file for *self* out to *file_name*.
     #  @param self *Module* to generate C++ for
@@ -1293,107 +1364,6 @@ class Module(Node):
 
         # Wrap everything up:
         out_stream.close()
-    ## @brief Write "slave" C++ to support RPC's for *self* out to *file_name*.
-    #  @param self *Module* for write C++ code for
-    #  @param offset *int* offset where to start case statements
-    #  @param variable_name *str* ???
-    #  @param out_stream *file* File to output case statements to
-    #  @result *int* Offset for next batch of case statemetns
-    #
-    # This method will write out a C++ the case statements needed to
-    # for all the registers and functions of *self*.  
-
-    def ino_slave_write(self, offset, variable_name, out_stream):
-	""" Module.ino_slave_write() """
-
-        original_offset = offset
-        #print "=>Module.ino_slave_write({0}, {1}, *)". \
-        #  format(offset, variable_name)
-
-        # Check argument types:
-        assert isinstance(offset, int)
-        assert isinstance(variable_name, str)
-        assert isinstance(out_stream, file)
-
-        # Grab some values from *self*:
-        functions = self.functions
-        name = self.name
-        registers = self.registers
-        style = self.style
-
-        # Iterate over all *registers*:
-        last_number = -1
-        for register in registers:
-            register.ino_slave_write(offset, variable_name, out_stream)
-            if register.number > last_number:
-                last_number = register.number + 1
-
-        # Iterate over all *functions*:
-        for function in functions:
-            function.ino_slave_write(offset, variable_name, out_stream)
-            if function.number > last_number:
-                last_number = function.number
-
-        offset += last_number + 1
-
-        #print "<=Module.ino_slave_write({0}, {1}, *)=>{2}". \
-        #  format(original_offset, variable_name, offset)
-
-        return offset
-
-    def command_process_write(self, offset, out_stream):
-	""" Module.command_process_write() """
-
-	assert isinstance(offset, int)
-	assert isinstance(out_stream, file)
-
-	out_stream.write("// command_process: Command process\n")
-	style = self.style
-	format_text = "UByte {0:n}::command_process(Bus_Slave *bus_slave," + \
-	  " UByte command, Logical execute_mode){1:b}"
-        out_stream.write(format_text.format(self, style))
-
-	out_stream.write("{0:i}switch (command){0:b}".format(style))
-
-        original_offset = offset
-        #print "=>Module.ino_slave_write({0}, {1}, *)". \
-        #  format(offset, variable_name)
-
-        # Check argument types:
-        assert isinstance(offset, int)
-        assert isinstance(out_stream, file)
-
-        # Grab some values from *self*:
-        functions = self.functions
-        name = self.name
-        registers = self.registers
-        style = self.style
-
-        # Iterate over all *registers*:
-        last_number = -1
-        for register in registers:
-            register.command_process_case_write(offset, out_stream)
-            if register.number > last_number:
-                last_number = register.number + 1
-
-        # Iterate over all *functions*:
-        for function in functions:
-            function.command_process_case_write(offset, out_stream)
-            if function.number > last_number:
-                last_number = function.number
-
-        offset += last_number + 1
-
-        #print "<=Module.ino_slave_write({0}, {1}, *)=>{2}". \
-        #  format(original_offset, variable_name, offset)
-
-	out_stream.write("{0:e}".format(style))
-	out_stream.write("{0:i}return 0;\n".format(style))
-	out_stream.write("{0:e}".format(style))
-
-	out_stream.write("\n")
-
-        return offset
 
     ## @brief Read in the fenced code for *file_name* into a table of *self*
     #  @param self *Module* that contains the fences table
@@ -1468,24 +1438,6 @@ class Module(Node):
         # Hang onto the retained chunks:
         self.fences = fences
 
-    ## @brief Write fenced code for *fence_name* from *self* to *out_stream*
-    #  @param self *Module* object that contains fenced code table
-    #  @param fence_name *str* Name of fence to write out
-    #  @param out_stream *file* file output stream that is open for writing
-    #
-    # A this method will write out the fenced code for *fence_name* out
-    # to *out_stream* using the fences table in *self*.  A fence is
-    # user supplied code that is spliced into a file of computer 
-    # generated code.  A fence looks as follows:
-    #
-    #          //////// Edit begins here: {FENCE_NAME}
-    #          ...
-    #          //////// Edit ends here: {FENCE_NAME}
-    #
-    # where "..." is zero, one or more lines of user supplied code.
-    # This code is read from *file_name prior to overwriting the file
-    # with newly generated code.
-
     def fence_write(self, fence_name, out_stream):
 	""" Module.fence_write(): """
 
@@ -1504,42 +1456,71 @@ class Module(Node):
         # Output "//////// Edit ends here: {FENCE_NAME}"
         out_stream.write("{0} {1}\n".format(self.fence_end, fence_name))
 
-    ## @brief Collect the information needed for sketch generation.
-    #  @param self *Module* to collect infromation from
-    #  @param module_use *Module_Use* that referenced *self*
-    #  @param sketch_generator *Sketch_Generator* to collect information into
-    #  @param ident *int* amount to indent debug trace information by
-    # 
-    # This routine will collect the information needed to generate the
-    # Arduino(tm) sketch code need for *self* using *sketch_generator*
-    # to collect the sketch information into.  *indent* is used for
-    # debugging to specify amount to indent tracing messages by.
+    ## @brief Write "slave" C++ to support RPC's for *self* out to *file_name*.
+    #  @param self *Module* for write C++ code for
+    #  @param offset *int* offset where to start case statements
+    #  @param variable_name *str* ???
+    #  @param out_stream *file* File to output case statements to
+    #  @result *int* Offset for next batch of case statemetns
+    #
+    # This method will write out a C++ the case statements needed to
+    # for all the registers and functions of *self*.  
 
-    def sketch_generate(self, module_use, sketch_generator, indent):
-	""" Module.sketch_generate(): """
+    def ino_slave_write(self, offset, variable_name, out_stream):
+	""" Module.ino_slave_write() """
+
+        original_offset = offset
+        #print "=>Module.ino_slave_write({0}, {1}, *)". \
+        #  format(offset, variable_name)
 
         # Check argument types:
-        assert isinstance(sketch_generator, Sketch_Generator)
-        assert isinstance(indent, int)
+        assert isinstance(offset, int)
+        assert isinstance(variable_name, str)
+        assert isinstance(out_stream, file)
 
-        name = self.name
-        vendor = self.vendor
-        #print "{0}=>Module.sketch_generator({1}, {2})". \
-        #  format(" " * indent, vendor, name)
-
+        # Grab some values from *self*:
         functions = self.functions
+        name = self.name
         registers = self.registers
-        if len(functions) != 0 or len(registers) != 0:
-            # We need this module:
-            key = (vendor, name)
-            unique_modules = sketch_generator.unique_modules
-            if key in unique_modules:
-                unique_modules[key].append(module_use)
-            else:
-                unique_modules[key] = [ module_use ]
+        style = self.style
 
-        #print "{0}<=Module.sketch_generator({1}, {2})". \
-        #  format(" " * indent, vendor, name)
+        # Iterate over all *registers*:
+        last_number = -1
+        for register in registers:
+            register.ino_slave_write(offset, variable_name, out_stream)
+            if register.number > last_number:
+                last_number = register.number + 1
+
+        # Iterate over all *functions*:
+        for function in functions:
+            function.ino_slave_write(offset, variable_name, out_stream)
+            if function.number > last_number:
+                last_number = function.number
+
+        offset += last_number + 1
+
+        #print "<=Module.ino_slave_write({0}, {1}, *)=>{2}". \
+        #  format(original_offset, variable_name, offset)
+
+        return offset
+
+    ## @brief Write fenced code for *fence_name* from *self* to *out_stream*
+    #  @param self *Module* object that contains fenced code table
+    #  @param fence_name *str* Name of fence to write out
+    #  @param out_stream *file* file output stream that is open for writing
+    #
+    # A this method will write out the fenced code for *fence_name* out
+    # to *out_stream* using the fences table in *self*.  A fence is
+    # user supplied code that is spliced into a file of computer 
+    # generated code.  A fence looks as follows:
+    #
+    #          //////// Edit begins here: {FENCE_NAME}
+    #          ...
+    #          //////// Edit ends here: {FENCE_NAME}
+    #
+    # where "..." is zero, one or more lines of user supplied code.
+    # This code is read from *file_name prior to overwriting the file
+    # with newly generated code.
 
     ## @brief Write out Python RPC access code for *self* to *file_name*
     #  @param self *Module* to write Python code for
@@ -1585,6 +1566,161 @@ class Module(Node):
 
         # All done:
         style.indent_adjust(-1)
+
+    def ros_cmakelist_update(self):
+	# Read in CMakeList.txt into *lines*:
+	file_name = "CMakeLists.txt"
+	in_stream = open(file_name, "ra")
+	lines = in_stream.readlines()
+	in_stream.close()
+
+	# Find the *start_index* in *lines* that contains "add_service_files(":
+	start_index = -1
+	for index in range(len(lines)):
+	    line = lines[index]
+	    if line == "add_service_files(\n":
+		start_index = index
+		#print("start_index={0}".format(start_index))
+		break
+
+	# Find the *end_index* in *lines* that contains ")":
+	end_index = -1
+        if start_index >= 0:
+	    for index in range(start_index + 1, len(lines)):
+		line = lines[index]
+                if line == ")\n":
+                    end_index = index
+		    #print("end_index={0}".format(end_index))
+                    break
+	
+	if end_index < 0:
+	    print("Unable to find add_service_files( in CMakeLists.txt")
+	else:
+	    # Extract *original_service_lines*:
+	    original_service_lines = lines[start_index + 2:end_index]
+	    #print("original_service_line={0}".format(original_service_lines))
+
+	    # Compute *desired_sevice_lines*:
+	    desired_service_lines = []
+
+	    # Process all of the *registers*:
+	    for register in self.registers:
+		desired_service_lines.append(
+		  "  {0:G}.srv\n".format(register))
+		desired_service_lines.append(
+		  "  {0:S}.srv\n".format(register))
+
+	    # Skip functions for now:
+
+	    #print("deisired_service_lines={0}".format(desired_service_lines))
+
+	    # Update *file_name* if the *desired_service_lines* is different:
+	    if original_service_lines != desired_service_lines:
+		# The services have changed:
+		out_stream = open(file_name, "wa")
+		for line in lines[0:start_index + 2]:
+		    out_stream.write(line)
+		for line in desired_service_lines:
+		    out_stream.write(line)
+		for line in lines[end_index:]:
+		    out_stream.write(line)
+		out_stream.close()
+
+    def ros_python_client_write(self):
+	""" Module: Write out a command line clinet for *self*. """
+
+	file_name = "scripts/{0:N}_Client.py".format(self)
+	out_stream = open(file_name, "wa")
+	out_stream.write("#!/usr/bin/env python\n\n")
+
+	out_stream.write("import sys\n")
+	out_stream.write("import rospy\n")
+	out_stream.write(
+	  "# Use PYTHONPATH env. var to find {0:n}\n".format(self))
+	out_stream.write("from {0:n}.srv import *\n".format(self))
+	out_stream.write("\n")
+
+	out_stream.write("def main():\n")
+	out_stream.write("    arguments = sys.argv[1:]\n")
+	out_stream.write("    if len(arguments) == 0:\n")
+	out_stream.write("        print(\"No arguments specified!\")\n")
+	out_stream.write("    else:\n")
+	out_stream.write("        command = arguments[0]\n")
+	out_stream.write("        rospy.wait_for_service(\"{0:n}\")\n".
+	  format(self))
+	out_stream.write("        if False:\n")
+	out_stream.write("            pass\n")
+
+	for register in self.registers:
+	    register.ros_python_client_write(out_stream)
+
+	for function in self.functions:
+	    function.ros_python_client_write(out_stream)
+
+	out_stream.write("        else:\n")
+	out_stream.write(
+          "            print(\"Invalid command '{0}':\".format(command))\n")
+	out_stream.write("\n")
+
+	out_stream.write("if __name__ == \"__main__\":\n")
+	out_stream.write("    main()\n")
+
+
+	out_stream.close()
+
+	# Turn on the execute bit for *file_name*:
+	status = os.stat(file_name)
+	os.chmod(file_name, status.st_mode | stat.S_IEXEC)
+
+    ## @brief Write out the ROS service files for a module.
+    #  @param self *Module* to generate ROS service files for.
+    #
+    # This routine will generate the ROS service files for *self*.
+
+    def ros_srv_write(self):
+	for register in self.registers:
+	    register.ros_srv_write()
+
+	for function in self.functions:
+	    function.ros_srv_write()
+
+
+    ## @brief Collect the information needed for sketch generation.
+    #  @param self *Module* to collect infromation from
+    #  @param module_use *Module_Use* that referenced *self*
+    #  @param sketch_generator *Sketch_Generator* to collect information into
+    #  @param ident *int* amount to indent debug trace information by
+    # 
+    # This routine will collect the information needed to generate the
+    # Arduino(tm) sketch code need for *self* using *sketch_generator*
+    # to collect the sketch information into.  *indent* is used for
+    # debugging to specify amount to indent tracing messages by.
+
+    def sketch_generate(self, module_use, sketch_generator, indent):
+	""" Module.sketch_generate(): """
+
+        # Check argument types:
+        assert isinstance(sketch_generator, Sketch_Generator)
+        assert isinstance(indent, int)
+
+        name = self.name
+        vendor = self.vendor
+        #print "{0}=>Module.sketch_generator({1}, {2})". \
+        #  format(" " * indent, vendor, name)
+
+        functions = self.functions
+        registers = self.registers
+        if len(functions) != 0 or len(registers) != 0:
+            # We need this module:
+            key = (vendor, name)
+            unique_modules = sketch_generator.unique_modules
+            if key in unique_modules:
+                unique_modules[key].append(module_use)
+            else:
+                unique_modules[key] = [ module_use ]
+
+        #print "{0}<=Module.sketch_generator({1}, {2})". \
+        #  format(" " * indent, vendor, name)
 
 # Not used any more:
 #
@@ -2215,6 +2351,8 @@ class Parameter:
     # This method will initialize *self* from the XML in *parameter_element*.
 
     def __init__(self, parameter_element, style):
+	""" Parameter:  Intialize *self* with *parameter_element* and
+            *style*. """
 
         # Check argument types:
         assert isinstance(parameter_element, ET.Element)
@@ -2240,6 +2378,7 @@ class Parameter:
     #  * 'c' return the C/C++ type of *self* (i.e. "Type Name")
 
     def __format__(self, fmt):
+	""" Parameter: Format *self* using *fmt*. """
 
         if fmt == "t":
             result = self.type
@@ -2685,43 +2824,106 @@ class Register(Node):
         name = attributes["Name"]
         type = attributes["Type"]
 
+	ros_types = {}
+	ros_types["Byte"] = "int8"
+	ros_types["UByte"] = "uint8"
+	ros_types["Short"] = "int16"
+	ros_types["UShort"] = "uint16"
+	ros_types["Integer"] = "int32"
+	ros_types["UInteger"] = "uint32"
+	ros_types["Long"] = "int64"
+	ros_types["ULong"] = "uint64"
+	ros_types["Logical"] = "bool"
+
         self.brief = attributes["Brief"]
         self.description = Description.extract(register_element, style)
         self.name = name
         self.number = int(attributes["Number"])
         self.type = type
+	self._ros_types = ros_types
 
         Node.__init__(self, "Register", name, None, None, style)
 
     def __format__(self, fmt):
         """ Register: Return a formatted version of *self* controlled by
             *fmt*.
-            If *fmt* is a 'r', a routine name is returned.
-            If *fmt* is a 'g', a "get" routine name is returned.
-            if *fmt* is a 's', a "set" routine name is returned.
+            If *fmt* is a 'G', a mixed case "get" routine name is returned.
+            if *fmt* is a 'S', a mixed case "set" routine name is returned.
+            If *fmt* is a 'N', the mixed case register name is returned.
+            If *fmt* is a 'g', a lower case "get" routine name is returned.
+            If *fmt* is a 'r', a lower case routine name is returned.
+            if *fmt* is a 's', a lower case "set" routine name is returned.
             If *fmt* is a 't', the register type is returned.
-            If *fmt* is a 'n', the reigster name is returned.  """
+            If *fmt* is a 'n', the lower case register name is returned.
+	    If *fmt* is a 'R', the ROS type name is returned.
+        """
 
         style = self.style
-        if fmt == 'r':
-            result = style.routine_name(self.name)
-        elif fmt == 'g':
-            result = style.routine_name(self.name + ' get')
-        elif fmt == 's':
-            result = style.routine_name(self.name + ' set')
-        elif fmt == 'n':
+        if fmt == 'G':
+            result = style.routine_name(self.name + ' Get')
+        elif fmt == 'N':
             result = self.name 
+        elif fmt == 'S':
+            result = style.routine_name(self.name + ' Set')
+        elif fmt == 'g':
+            result = style.routine_name(self.name + ' get').lower()
+	elif fmt == 'r':
+            result = style.routine_name(self.name).lower()
+        elif fmt == 's':
+            result = style.routine_name(self.name + ' set').lower()
+        elif fmt == 'n':
+            result = self.name.lower()
         elif fmt == 't':
             result = self.type
+	elif fmt == 'R':
+	    result = self._ros_types[self.type]
         else:
             result = "@Register:{0}@".format(fmt)
         return result
+
+    def command_process_case_write(self, offset, out_stream):
+        """ Register: Write C++ code for *self* to *stream* where
+            the code is a case clause of a switch statement that
+            processes a remote procedure call. """
+
+        assert isinstance(offset, int)
+        assert isinstance(out_stream, file)
+
+        # Grab some values out of *self*:
+        brief = self.brief
+        number = self.number
+        style = self.style
+	type = "{0:t}".format(self).lower()
+
+        # Output the code for the get method:
+        out_stream.write("{0:i}case {1}:{0:b}".format(style, offset + number))
+        out_stream.write("{0:i}// {1:g}: {2}\n".format(style, self, brief))
+        out_stream.write("{0:i}if (execute_mode){0:b}".format(style))
+        out_stream.write("{0:i}{1:t} {1:n} = {1:g}();\n". \
+          format(style, self))
+        out_stream.write("{0:i}bus_slave->{1}_put({2:n});\n". \
+          format(style, type, self))
+        out_stream.write("{0:e}".format(style))
+        out_stream.write("{0:i}break;\n".format(style))
+        out_stream.write("{0:e}".format(style))
+
+        # Output the case for the set method:
+        out_stream.write("{0:i}case {1}:{0:b}".
+	  format(style, offset + number + 1))
+        out_stream.write("{0:i}// {1:s}: {2}\n".format(style, self, brief))
+        out_stream.write("{0:i}{1:t} {1:n} = bus_slave->{2}_get();\n". \
+          format(style, self, type))
+        out_stream.write("{0:i}if (execute_mode){0:b}".format(style))
+        out_stream.write("{0:i}{1:s}({1:n});\n".format(style, self))
+        out_stream.write("{0:e}".format(style))
+        out_stream.write("{0:i}break;\n".format(style))
+        out_stream.write("{0:e}".format(style))
 
     def cpp_header_write(self, module, out_stream):
         """ Register: Write out the register method declarations for
             *self* to *out_stream*. """
 
-        # Grab some values from *self}:
+        # Grab some values from *self*:
         name = self.name
         style = self.style
 
@@ -2910,44 +3112,6 @@ class Register(Node):
         stream.write("{0:i}break;\n".format(style))
         stream.write("{0:e}".format(style))
 
-    def command_process_case_write(self, offset, out_stream):
-        """ Register: Write C++ code for *self* to *stream* where
-            the code is a case clause of a switch statement that
-            processes a remote procedure call. """
-
-        assert isinstance(offset, int)
-        assert isinstance(out_stream, file)
-
-        # Grab some values out of *self*:
-        brief = self.brief
-        name = self.name
-        number = self.number
-        style = self.style
-        type = self.type
-
-        # Output the code for the get method:
-        out_stream.write("{0:i}case {1}:{0:b}".format(style, offset + number))
-        out_stream.write("{0:i}// {1:g}: {2}\n".format(style, self, brief))
-        out_stream.write("{0:i}if (execute_mode){0:b}".format(style))
-        out_stream.write("{0:i}{1} {2} = {3:g}();\n". \
-          format(style, type, name, self))
-        out_stream.write("{0:i}bus_slave->{1}_put({2});\n". \
-          format(style, type.lower(), name))
-        out_stream.write("{0:e}".format(style))
-        out_stream.write("{0:i}break;\n".format(style))
-        out_stream.write("{0:e}".format(style))
-
-        # Output the case for the set method:
-        out_stream.write("{0:i}case {1}:{0:b}".format(style, offset + number + 1))
-        out_stream.write("{0:i}// {1:s}: {2}\n".format(style, self, brief))
-        out_stream.write("{0:i}{1} {2} = bus_slave->{3}_get();\n". \
-          format(style, type, name, type.lower()))
-        out_stream.write("{0:i}if (execute_mode){0:b}".format(style))
-        out_stream.write("{0:i}{1:s}({1:n});\n".format(style, self))
-        out_stream.write("{0:e}".format(style))
-        out_stream.write("{0:i}break;\n".format(style))
-        out_stream.write("{0:e}".format(style))
-
     def python_write(self, out_stream):
         """ Register: Write the python method functions for *self* to
             *out_stream*.  This is both a "get" and a "set" method
@@ -3020,6 +3184,50 @@ class Register(Node):
 
         # Restore indentation:
         style.indent_adjust(-1)
+
+    def ros_python_client_write(self, out_stream):
+	""" Register: Write out an if clause for *self*. """
+
+	assert isinstance(out_stream, file)
+	put = out_stream.write
+	put("        elif command == \"{0:n}_get\":\n".format(self))
+	put("            try:\n")
+	put("                routine = rospy.ServiceProcsy(\"{0:g}\", {0:G})\n".
+          format(self))
+	put("                response = routine(0, 0, 0)\n")
+	put("                print(\"{0}\".format(response.value))\n")
+	put("            except rospy.ServiceException, e:\n")
+	put("                print(\"Failed {0}\".format(e))\n")
+	put("        elif command == \"{0:n}_set\":\n".format(self))
+	put("            try:\n")
+	put("                routine = rospy.ServiceProcsy(\"{0:s}\", {0:S})\n".
+          format(self))
+	put("                response = routine(0, 0, 0, int(arguments[1]))\n")
+	put("            except rospy.ServiceException, e:\n")
+	put("                print(\"Failed {0}\".format(e))\n")
+
+    def ros_srv_write(self):
+	""" Register: Write out srv files for *self*. """
+
+	# Output the get service file:
+	out_stream = open("srv/{0:G}.srv".format(self), "wa")
+	out_stream.write("uint16 address\n")
+	out_stream.write("uint8 retries\n")
+	out_stream.write("int8 priority\n")
+	out_stream.write("---\n")
+	out_stream.write("{0:R} value\n".format(self))
+	out_stream.write("int8 status\n")
+	out_stream.close()
+
+        # Output the put service file:
+	out_stream = open("srv/{0:S}.srv".format(self), "wa")
+	out_stream.write("uint16 address\n")
+	out_stream.write("uint8 retries\n")
+	out_stream.write("int8 priority\n")
+	out_stream.write("{0:R} value\n".format(self))
+	out_stream.write("---\n")
+	out_stream.write("int8 status\n")
+	out_stream.close()
 
 ## @class Result
 #
@@ -3480,10 +3688,17 @@ def main():
     assert style.indent == 0
     module.cpp_local_source_write(local_xml_base + "_Local.cpp")
 
-    assert style.indent == 0
+    if os.path.isdir("srv"):
+	module.ros_srv_write()
+	module.ros_cmakelist_update()
+
+    if os.path.isdir("scripts"):
+	module.ros_python_client_write()
+
+    #assert style.indent == 0
     #module.cpp_remote_header_write(local_xml_base + "_Remote.h")
 
-    assert style.indent == 0
+    #assert style.indent == 0
     #module.cpp_remote_source_write(local_xml_base + "_Remote.cpp")
 
     #assert style.indent == 0

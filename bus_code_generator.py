@@ -1682,72 +1682,93 @@ class Module(Node):
 	# Open *file_name*:
 	file_name = "scripts/{0:n}_server.py".format(self)
 	out_stream = open(file_name, "wa")
+	put = out_stream.write
 
 	# Write out the "#!..." python interpreter string:
-	out_stream.write("#!/usr/bin/env python\n\n")
-	out_stream.write("\n")
+	put("#!/usr/bin/env python\n\n")
+	put("\n")
 
 	# Write out a warning to not hand edit the code:
-	out_stream.write("# This code is generated from {0:N}.xml.\n".
-	  format(self))
-	out_stream.write("# ALL edits to this code will be overwritten!\n")
-	out_stream.write("\n")
+	put("# This code is generated from {0:N}.xml.\n".format(self))
+	put("# ALL edits to this code will be overwritten!\n")
+	put("\n")
 
 	# Output the imports:
-	out_stream.write("import rospy\n")
-	out_stream.write(
-	  "# Use PYTHONPATH env. var to find {0:n}.srv\n".format(self))
-	out_stream.write("from {0:n}.srv import *\n".format(self))
-	out_stream.write("\n")
+	put("import rospy\n")
+	put("# Use PYTHONPATH env. var to find {0:n}.srv and bus_server.srv\n".
+	  format(self))
+	put("from {0:n}.srv import *\n".format(self))
+	put("from bus_server.srv import *\n".format(self))
+	put("\n")
 
 	# Initialize the registers diectionary:
-	out_stream.write("# Registers are initialized here:\n")
-	out_stream.write("registers = {}\n")
-	for register in self.registers:
-	    out_stream.write("registers[\"{0:n}\"] = 0\n".format(register))
-	out_stream.write("\n")
+	#out_stream.write("# Registers are initialized here:\n")
+	#out_stream.write("registers = {}\n")
+	#for register in self.registers:
+	#    out_stream.write("registers[\"{0:n}\"] = 0\n".format(register))
+	#out_stream.write("\n")
 
 	# Define the register get/set routines:
 	for register in self.registers:
+	    ros_type = "{0:Y}".format(register)
+
 	    #  Output the _get routine:
-	    out_stream.write("def {0:g}(request):\n".format(register))
-	    out_stream.write(
-	      "    return {0:G}Response(registers[\"{0:n}\"], 0)\n".
-	      format(register))
-	    out_stream.write("\n")
+	    get_service_name = "bus_{0}_get".format(ros_type.lower())
+	    put("def {0:g}(request):\n".format(register))
+	    put("    rospy.wait_for_service(\"{0}\")\n".
+	      format(get_service_name))
+	    put("    try:\n")
+	    put("        routine = rospy.ServiceProxy(\"{0}\", Bus{1}Get)\n".
+	      format(get_service_name, ros_type))
+	    put(("        response = routine(request.address, {0}," +
+	      " request.retries, request.priority)\n").
+	      format(register.number))
+	    put(("        return {0:G}Response(response.value," +
+	      " response.status)\n").format(register))
+	    put("    except rospy.ServiceException, e:\n".format())
+	    put("        assert False, \"Failed {0}\".format(e)\n")
+	    put("\n")
 
 	    #  Output the _set routine:
-	    out_stream.write("def {0:s}(request):\n".format(register))
-	    out_stream.write("    registers[\"{0:n}\"] = request.value\n".
+	    set_service_name = "bus_{0}_set".format(ros_type.lower())
+	    put("def {0:s}(request):\n".format(register))
+	    put("    rospy.wait_for_service(\"{0}\")\n".
+	      format(set_service_name))
+	    put("    try:\n")
+	    put("        routine = rospy.ServiceProxy(\"{0}\", Bus{1}Set)\n".
+	      format(set_service_name, ros_type))
+	    put(("        response = routine(request.address, {0}," +
+	      "  request.value, request.retries, request.priority)\n").
+	      format(register.number + 1))
+	    put("        return {0:S}Response(response.status)\n".
 	      format(register))
-	    out_stream.write("    return {0:S}Response(0)\n".format(register))
-	    out_stream.write("\n")
+	    put("    except rospy.ServiceException, e:\n".format())
+	    put("        assert False, \"Failed {0}\".format(e)\n")
+	    put("\n")
 
 	# Define the main routine:
-	out_stream.write("def main():\n")
+	put("def main():\n")
 
 	# Register the service name:
-	out_stream.write("    rospy.init_node(\"{0:n}_server\")\n".format(self))
+	put("    rospy.init_node(\"{0:n}_server\")\n".format(self))
 
 	# Add get/set enteries for each *register*:
 	for register in self.registers:
-	    out_stream.write(
-	      "    rospy.Service(\"{0:g}\", {0:G}, {0:g})\n".format(register))
-	    out_stream.write(
-	      "    rospy.Service(\"{0:s}\", {0:S}, {0:s})\n".format(register))
+	    put("    rospy.Service(\"{0:g}\", {0:G}, {0:g})\n".format(register))
+	    put("    rospy.Service(\"{0:s}\", {0:S}, {0:s})\n".format(register))
 
 	# Skip functions for now:
 	#for function in self.functions:
 	#    function.ros_python_client_write(out_stream)
 
 	# Start the server:
-	out_stream.write("    print(\"Starting {0:N} server\")\n".format(self))
-	out_stream.write("    rospy.spin()\n")
-	out_stream.write("\n")
+	put("    print(\"Starting {0:N} server\")\n".format(self))
+	put("    rospy.spin()\n")
+	put("\n")
 
 	# Run main() if this is the top level program:
-	out_stream.write("if __name__ == \"__main__\":\n")
-	out_stream.write("    main()\n")
+	put("if __name__ == \"__main__\":\n")
+	put("    main()\n")
 
 	# Close *out_stream*:
 	out_stream.close()
@@ -2317,8 +2338,8 @@ class Sketch_Generator:
         out_stream.write("{0:e}\n\n".format(style))
 
         # Output the command processor routine:
-        out_stream.write("UByte command_process(Bus *bus, " + \
-          "UByte command, Logical execute_mode){0:b}".format(style))
+        out_stream.write(("UByte command_process(Bus *bus, " + \
+          "UByte command, Logical execute_mode){0:b}").format(style))
         out_stream.write("{0:i}switch (command){0:b}".format(style))
 
         # Output access code for each *module_use*:
@@ -2909,15 +2930,15 @@ class Register(Node):
         type = attributes["Type"]
 
 	ros_types = {}
-	ros_types["Byte"] = "int8"
-	ros_types["UByte"] = "uint8"
-	ros_types["Short"] = "int16"
-	ros_types["UShort"] = "uint16"
-	ros_types["Integer"] = "int32"
-	ros_types["UInteger"] = "uint32"
-	ros_types["Long"] = "int64"
-	ros_types["ULong"] = "uint64"
-	ros_types["Logical"] = "bool"
+	ros_types["Byte"] = "Int8"
+	ros_types["UByte"] = "UInt8"
+	ros_types["Short"] = "Int16"
+	ros_types["UShort"] = "UInt16"
+	ros_types["Integer"] = "Int32"
+	ros_types["UInteger"] = "IUnt32"
+	ros_types["Long"] = "Int64"
+	ros_types["ULong"] = "UInt64"
+	ros_types["Logical"] = "Bool"
 
         self.brief = attributes["Brief"]
         self.description = Description.extract(register_element, style)
@@ -2934,12 +2955,13 @@ class Register(Node):
             If *fmt* is a 'G', a mixed case "get" routine name is returned.
             if *fmt* is a 'S', a mixed case "set" routine name is returned.
             If *fmt* is a 'N', the mixed case register name is returned.
+	    If *fmt* is a 'Y', the mixed case ROS type name is returned.
             If *fmt* is a 'g', a lower case "get" routine name is returned.
             If *fmt* is a 'r', a lower case routine name is returned.
             if *fmt* is a 's', a lower case "set" routine name is returned.
             If *fmt* is a 't', the register type is returned.
             If *fmt* is a 'n', the lower case register name is returned.
-	    If *fmt* is a 'R', the ROS type name is returned.
+	    If *fmt* is a 'y', the lower case ROS type name is returned.
         """
 
         style = self.style
@@ -2947,8 +2969,12 @@ class Register(Node):
             result = style.routine_name(self.name + ' Get')
         elif fmt == 'N':
             result = self.name 
+	elif fmt == 'R':
+	    result = self._ros_types[self.type]
         elif fmt == 'S':
             result = style.routine_name(self.name + ' Set')
+	elif fmt == 'Y':
+	    result = self._ros_types[self.type]
         elif fmt == 'g':
             result = style.routine_name(self.name + ' get').lower()
 	elif fmt == 'r':
@@ -2957,10 +2983,10 @@ class Register(Node):
             result = style.routine_name(self.name + ' set').lower()
         elif fmt == 'n':
             result = self.name.lower()
+	elif fmt == 'y':
+	    result = self._ros_types[self.type].lower()
         elif fmt == 't':
             result = self.type
-	elif fmt == 'R':
-	    result = self._ros_types[self.type]
         else:
             result = "@Register:{0}@".format(fmt)
         return result
@@ -3301,7 +3327,7 @@ class Register(Node):
 	out_stream.write("uint8 retries\n")
 	out_stream.write("int8 priority\n")
 	out_stream.write("---\n")
-	out_stream.write("{0:R} value\n".format(self))
+	out_stream.write("{0:Y} value\n".format(self))
 	out_stream.write("int8 status\n")
 	out_stream.close()
 
@@ -3310,7 +3336,7 @@ class Register(Node):
 	out_stream.write("uint16 address\n")
 	out_stream.write("uint8 retries\n")
 	out_stream.write("int8 priority\n")
-	out_stream.write("{0:R} value\n".format(self))
+	out_stream.write("{0:Y} value\n".format(self))
 	out_stream.write("---\n")
 	out_stream.write("int8 status\n")
 	out_stream.close()

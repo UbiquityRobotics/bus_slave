@@ -904,7 +904,7 @@ class Function(Node):
         style.indent_adjust(-1)
 
     def ros_python_client_write(self, out_stream):
-	""" Register: Write out an if clause for *self*. """
+	""" Function: Write out an if clause for *self*. """
 
 	assert isinstance(out_stream, file)
 	out_stream.write(
@@ -1629,14 +1629,20 @@ class Module(Node):
     def ros_python_client_write(self):
 	""" Module: Write out a command line clinet for *self*. """
 
-	file_name = "scripts/{0:N}_Client.py".format(self)
+	file_name = "scripts/{0:n}_client.py".format(self)
 	out_stream = open(file_name, "wa")
 	out_stream.write("#!/usr/bin/env python\n\n")
+	out_stream.write("\n")
+
+	out_stream.write("# This code is generated from {0:N}.xml.\n".
+	  format(self))
+	out_stream.write("# ALL edits to this code will be overwritten!\n")
+	out_stream.write("\n")
 
 	out_stream.write("import sys\n")
 	out_stream.write("import rospy\n")
 	out_stream.write(
-	  "# Use PYTHONPATH env. var to find {0:n}\n".format(self))
+	  "# Use PYTHONPATH env. var to find {0:n}.srv\n".format(self))
 	out_stream.write("from {0:n}.srv import *\n".format(self))
 	out_stream.write("\n")
 
@@ -1646,8 +1652,6 @@ class Module(Node):
 	out_stream.write("        print(\"No arguments specified!\")\n")
 	out_stream.write("    else:\n")
 	out_stream.write("        command = arguments[0]\n")
-	out_stream.write("        rospy.wait_for_service(\"{0:n}\")\n".
-	  format(self))
 	out_stream.write("        if False:\n")
 	out_stream.write("            pass\n")
 
@@ -1666,6 +1670,86 @@ class Module(Node):
 	out_stream.write("    main()\n")
 
 
+	out_stream.close()
+
+	# Turn on the execute bit for *file_name*:
+	status = os.stat(file_name)
+	os.chmod(file_name, status.st_mode | stat.S_IEXEC)
+
+    def ros_python_server_write(self):
+	""" Module: Write out a Python server for *self*. """
+
+	# Open *file_name*:
+	file_name = "scripts/{0:n}_server.py".format(self)
+	out_stream = open(file_name, "wa")
+
+	# Write out the "#!..." python interpreter string:
+	out_stream.write("#!/usr/bin/env python\n\n")
+	out_stream.write("\n")
+
+	# Write out a warning to not hand edit the code:
+	out_stream.write("# This code is generated from {0:N}.xml.\n".
+	  format(self))
+	out_stream.write("# ALL edits to this code will be overwritten!\n")
+	out_stream.write("\n")
+
+	# Output the imports:
+	out_stream.write("import rospy\n")
+	out_stream.write(
+	  "# Use PYTHONPATH env. var to find {0:n}.srv\n".format(self))
+	out_stream.write("from {0:n}.srv import *\n".format(self))
+	out_stream.write("\n")
+
+	# Initialize the registers diectionary:
+	out_stream.write("# Registers are initialized here:\n")
+	out_stream.write("registers = {}\n")
+	for register in self.registers:
+	    out_stream.write("registers[\"{0:n}\"] = 0\n".format(register))
+	out_stream.write("\n")
+
+	# Define the register get/set routines:
+	for register in self.registers:
+	    #  Output the _get routine:
+	    out_stream.write("def {0:g}(request):\n".format(register))
+	    out_stream.write(
+	      "    return {0:G}Response(registers[\"{0:n}\"], 0)\n".
+	      format(register))
+	    out_stream.write("\n")
+
+	    #  Output the _set routine:
+	    out_stream.write("def {0:s}(request):\n".format(register))
+	    out_stream.write("    registers[\"{0:n}\"] = request.value\n".
+	      format(register))
+	    out_stream.write("    return {0:S}Response(0)\n".format(register))
+	    out_stream.write("\n")
+
+	# Define the main routine:
+	out_stream.write("def main():\n")
+
+	# Register the service name:
+	out_stream.write("    rospy.init_node(\"{0:n}_server\")\n".format(self))
+
+	# Add get/set enteries for each *register*:
+	for register in self.registers:
+	    out_stream.write(
+	      "    rospy.Service(\"{0:g}\", {0:G}, {0:g})\n".format(register))
+	    out_stream.write(
+	      "    rospy.Service(\"{0:s}\", {0:S}, {0:s})\n".format(register))
+
+	# Skip functions for now:
+	#for function in self.functions:
+	#    function.ros_python_client_write(out_stream)
+
+	# Start the server:
+	out_stream.write("    print(\"Starting {0:N} server\")\n".format(self))
+	out_stream.write("    rospy.spin()\n")
+	out_stream.write("\n")
+
+	# Run main() if this is the top level program:
+	out_stream.write("if __name__ == \"__main__\":\n")
+	out_stream.write("    main()\n")
+
+	# Close *out_stream*:
 	out_stream.close()
 
 	# Turn on the execute bit for *file_name*:
@@ -3191,16 +3275,18 @@ class Register(Node):
 	assert isinstance(out_stream, file)
 	put = out_stream.write
 	put("        elif command == \"{0:n}_get\":\n".format(self))
+	put("            rospy.wait_for_service(\"{0:g}\")\n".format(self))
 	put("            try:\n")
-	put("                routine = rospy.ServiceProcsy(\"{0:g}\", {0:G})\n".
+	put("                routine = rospy.ServiceProxy(\"{0:g}\", {0:G})\n".
           format(self))
-	put("                response = routine(0, 0, 0)\n")
+	put("                response = routine(address=0, retries=0, priority=0)\n")
 	put("                print(\"{0}\".format(response.value))\n")
 	put("            except rospy.ServiceException, e:\n")
 	put("                print(\"Failed {0}\".format(e))\n")
 	put("        elif command == \"{0:n}_set\":\n".format(self))
+	put("            rospy.wait_for_service(\"{0:s}\")\n".format(self))
 	put("            try:\n")
-	put("                routine = rospy.ServiceProcsy(\"{0:s}\", {0:S})\n".
+	put("                routine = rospy.ServiceProxy(\"{0:s}\", {0:S})\n".
           format(self))
 	put("                response = routine(0, 0, 0, int(arguments[1]))\n")
 	put("            except rospy.ServiceException, e:\n")
@@ -3694,6 +3780,7 @@ def main():
 
     if os.path.isdir("scripts"):
 	module.ros_python_client_write()
+	module.ros_python_server_write()
 
     #assert style.indent == 0
     #module.cpp_remote_header_write(local_xml_base + "_Remote.h")

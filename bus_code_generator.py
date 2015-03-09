@@ -903,10 +903,12 @@ class Function(Node):
         # Restore indentation:
         style.indent_adjust(-1)
 
-    def ros_python_client_write(self, out_stream):
+    def ros_python_client_write(self, address, out_stream):
 	""" Function: Write out an if clause for *self*. """
 
+	assert isinstance(address, int) and 0 <= address <= 255
 	assert isinstance(out_stream, file)
+
 	out_stream.write(
 	  "        elif command == \"{0:n}\":\n".format(self))
 	out_stream.write("            pass\n")
@@ -1022,11 +1024,15 @@ class Module(Node):
         generate = ""
         if "Generate" in attributes:
             generate = attributes["Generate"]
+	default_address = ""
+	if "Default_Address" in attributes:
+	    default_address = attributes["Default_Address"]
 
         # Fill in the contents of *self*:
         self.classifications = classifications
         self.address_re = address_re
         self.address_type = address_type
+	self.default_address = default_address
         self.fence_begin = "  //////// Edit begins here:"
         self.fence_end = "  //////// Edit ends here:"
         self.functions = functions
@@ -1655,11 +1661,23 @@ class Module(Node):
 	out_stream.write("        if False:\n")
 	out_stream.write("            pass\n")
 
+	# Figure out *address*:
+	address = 0
+	default_address = self.default_address
+	if default_address != "":
+	    try:
+		address = int(default_address)
+	    except ValueError:
+		assert False, \
+		  "'{0}' is not a valid address".format(default_address)
+	assert 0 <= address <= 255, \
+	  "Default address {0} must fit in a byte".format(address)
+
 	for register in self.registers:
-	    register.ros_python_client_write(out_stream)
+	    register.ros_python_client_write(address, out_stream)
 
 	for function in self.functions:
-	    function.ros_python_client_write(out_stream)
+	    function.ros_python_client_write(address, out_stream)
 
 	out_stream.write("        else:\n")
 	out_stream.write(
@@ -3295,8 +3313,11 @@ class Register(Node):
         # Restore indentation:
         style.indent_adjust(-1)
 
-    def ros_python_client_write(self, out_stream):
+    def ros_python_client_write(self, address, out_stream):
 	""" Register: Write out an if clause for *self*. """
+
+	assert isinstance(address, int) and 0 <= address <= 255
+	assert isinstance(out_stream, file)
 
 	assert isinstance(out_stream, file)
 	put = out_stream.write
@@ -3305,7 +3326,7 @@ class Register(Node):
 	put("            try:\n")
 	put("                routine = rospy.ServiceProxy(\"{0:g}\", {0:G})\n".
           format(self))
-	put("                response = routine(address=0, retries=0, priority=0)\n")
+	put("                response = routine({0}, 0, 0)\n".format(address))
 	put("                print(\"{0}\".format(response.value))\n")
 	put("            except rospy.ServiceException, e:\n")
 	put("                print(\"Failed {0}\".format(e))\n")
@@ -3314,7 +3335,7 @@ class Register(Node):
 	put("            try:\n")
 	put("                routine = rospy.ServiceProxy(\"{0:s}\", {0:S})\n".
           format(self))
-	put("                response = routine(0, 0, 0, int(arguments[1]))\n")
+	put("                response = routine(33, 0, 0, int(arguments[1]))\n")
 	put("            except rospy.ServiceException, e:\n")
 	put("                print(\"Failed {0}\".format(e))\n")
 
@@ -3557,6 +3578,7 @@ class XML_Check:
         module.required_attribute("Vendor")
         module.optional_attribute("Address_RE")
         module.optional_attribute("Address_Type")
+        module.optional_attribute("Default_Address")
         module.optional_attribute("Generate")
         module.optional_attribute("Sub_Class")
         module.child_tag("Overview")

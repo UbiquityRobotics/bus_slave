@@ -35,14 +35,15 @@
 //!
 //! Bus communication takes place using UART's (sometimes called USART's.)
 //!
-//! We start with an abstract called *UART*.  This class is sub-classed
-//! into *Null_UART* and *AVR_UART*.  The *Null_UART* sub-class is a
-//! place holder object that does nothing.  The *Null_UART* is used
-//! as a debugging UART when there is no debugging UART available.
-//! The *AVR_UART* sub-class is used to talk to an AVR UART.  There
-//! will typically be an *AVR_UART* object for each available UART
-//! on givent hardware.  The *AVR_UART* is sub-classed into *AVR_UART0*,
-//! ..., *AVR_UART*n, depending upon how many UART's are available.
+//! We start with an abstract class called *UART*.  This class is
+//! sub-classed into *Null_UART* and *AVR_UART*.  The *Null_UART*
+//! sub-class is a place holder object that does nothing.  The
+//! *Null_UART* is used as a debugging UART when there is no debugging
+//! UART available.  The *AVR_UART* sub-class is used to talk to an
+//! AVR UART.  There  will typically be an *AVR_UART* object for each
+//! available UART on givent hardware.  The *AVR_UART* is sub-classed
+//! into *AVR_UART0*, ..., *AVR_UART*n, depending upon how many UART's
+//! are available.
 //!
 //! The *AVR_UART* object support both polled and non-polled operation.
 //! The non-polled operation is primarily used when bring software up
@@ -213,6 +214,12 @@ class Bus_Buffer
       ubyte_put((UByte)logical); 
     };
     void reset();			// Reset/clear buffer
+    Short short_get() {
+      return (Short)ushort_get();
+    };
+    void short_put(Short xshort) {
+      ushort_put((UShort)xshort); 
+    };
     void show(UByte Tag);		// Show buffer (for debgging)
     UByte ubyte_get();			// Get next *UByte* from buffer
     void ubyte_put(UByte ubyte);	// Put a *UByte* into buffer
@@ -387,7 +394,7 @@ class Bus_Slave
       return (Logical)ubyte_get();
     };
 
-    //! @brief Send *byte* to currently selected module.
+    //! @brief Send *logical* to currently selected module.
     //!   @param byte byte value to send to command.
     //!
     //! This member function will queue *logical* to be sent to the
@@ -395,6 +402,24 @@ class Bus_Slave
     void logical_put(Logical logical) {
       // Queue {byte} to be sent off to bus:
       ubyte_put((UByte)logical);
+    }
+
+    //! @brief Return next *Short* from currently selected module.
+    //! @return the next *Short* from currently selected module.
+    //!
+    //! This method will return the next *Short* from the currently
+    //! selected module.
+    Short short_get() {
+      return _get_buffer.short_get();
+    }
+
+    //! @brief Send *short* to currently selected module.
+    //! @param short	*Short* unsigned short to send.
+    //!
+    //! This method will send *short* to the currently selected module.
+    void short_put(Short xshort) {
+      // Queue {short} to be sent off to bus:
+      _put_buffer.short_put(xshort);
     }
 
     //! @brief Handle bus communication for a module in slave mode.
@@ -439,21 +464,25 @@ class Bus_Slave
     void uinteger_put(UInteger uinteger) {
       // Queue {uinteger} to be sent off to bus:
       _put_buffer.uinteger_put(uinteger);
-    };
+    }
 
     //! @brief Return next short from currently selected module.
     //!   @return the next short from currently selected module.
     //!
     //! This method will return the next unsigned short from the currently
     //! selected module.
-    UShort ushort_get();
+    UShort ushort_get() {
+      return _get_buffer.ushort_get();
+    }
 
     //! @brief Send *ushort* to currently selected module.
     //!    @param ushort	unsigned short to send
     //!
     //! This method will send *ushort* to the currently selected module.
-    void ushort_put(UShort ushort);
-	// Queue {ushort} to be sent off to bus:
+    void ushort_put(UShort ushort) {
+      // Queue {ushort} to be sent off to bus:
+      _put_buffer.ushort_put(ushort);
+    }
 
   private:
     static const UByte _maximum_request_size = 15;

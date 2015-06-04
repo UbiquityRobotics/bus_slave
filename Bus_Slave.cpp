@@ -659,6 +659,34 @@ void Bus_Slave::command_ubyte_put(UByte address, UByte command, UByte ubyte) {
   command_end();
 }
 
+UShort Bus_Slave::command_ushort_get(UByte address, UByte command) {
+  // For debugging:
+  //debug_text((Text)"cmd_ubyte_get(");
+  //debug_hex((UInteger)address);
+  //debug_text((Text)",");
+  //debug_hex((UInteger)command);
+  //debug_text((Text)")");
+
+  command_begin(address, command, 0);
+  command_end();
+  flush();
+  UShort ushort = ushort_get();
+
+  // For debugging:
+  //debug_text((Text)"=>");
+  //debug_hex((UInteger)ushort);
+  //debug_text((Text)"\r\n");
+
+  return ushort;
+}
+
+void Bus_Slave::command_ushort_put(
+ UByte address, UByte command, UShort ushort) {
+  command_begin(address, command, sizeof(UShort));
+  ushort_put(ushort);
+  command_end();
+}
+
 // Flush current buffer and get any response back:
 Logical Bus_Slave::flush() {
   debug_character('!');

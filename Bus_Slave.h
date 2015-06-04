@@ -337,7 +337,7 @@ class Bus_Slave
       return _bus_uart->can_transmit();
     };
 
-    UByte command_byte_get(UByte address, UByte command) {
+    Byte command_byte_get(UByte address, UByte command) {
       return (Byte)command_ubyte_get(address, command);
     };
 
@@ -349,9 +349,21 @@ class Bus_Slave
 
     void command_integer_put(UByte address, UByte command, Integer integer);
 
+    Short command_short_get(UByte address, UByte command) {
+      return (Short)command_ushort_get(address, command);
+    };
+
+    void command_short_put(UByte address, UByte command, Short xshort) {
+      command_ushort_put(address, command, (UShort)xshort);
+    }
+
     UByte command_ubyte_get(UByte address, UByte command);
 
     void command_ubyte_put(UByte address, UByte command, UByte ubyte);
+
+    UShort command_ushort_get(UByte address, UByte command);
+
+    void command_ushort_put(UByte address, UByte command, UShort ushort);
 
     UShort frame_get() { 
       UShort frame = _bus_uart->frame_get();

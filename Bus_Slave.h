@@ -72,6 +72,9 @@
 // Set *BUS_DEBUG* to 1 to enable debug tracing:
 #define BUS_DEBUG 0
 
+// Define *BUS_LOKI_AS_DEBUG to 1 to use debug trace output on BUS uart
+#define BUS_LOKI_UART1_AS_DEBUG
+
 // Signed types:
 typedef signed char Byte;		// 8-bit signed byte (-128 ... 128):
 typedef char Character;			// 8-bit character (sign whatever)
